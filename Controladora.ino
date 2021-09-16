@@ -12,7 +12,6 @@
 #define ENCODER_NUMBER_POS 10
 
 // ------------------------ KEYPAD DECLARATION ------------------------
-
 const byte LINHAS = 4; // Linhas do teclado
 const byte COLUNAS = 4; // Colunas do teclado
 
@@ -23,13 +22,12 @@ char TECLAS_MATRIZ[LINHAS][COLUNAS] = { // Matriz de caracteres (mapeamento do t
   {'*', '0', '#', 'D'}
 };
 
-byte PINOS_LINHAS[LINHAS] = {12,6,0,1}; // Pinos de conexao com as linhas do teclado
-byte PINOS_COLUNAS[COLUNAS] = {4,46,41,42}; // Pinos de conexao com as colunas do teclado
+byte PINOS_LINHAS[LINHAS] = {4,46,41,42}; // Pinos de conexao com as linhas do teclado
+byte PINOS_COLUNAS[COLUNAS] = {12,6,0,1}; // Pinos de conexao com as colunas do teclado
 
 Keypad myKeypad = Keypad(makeKeymap(TECLAS_MATRIZ), PINOS_LINHAS, PINOS_COLUNAS, LINHAS, COLUNAS); // Inicia teclado
 
 // ------------------------ LCD DECLARATION ------------------------
- 
 LiquidCrystal_I2C lcd(0x27,16,2);
 
 // ------------------------ STEPPER MOTOR DECLARATION ------------------------
@@ -40,10 +38,15 @@ const uint16_t microsteps = 1600;
 FT_Stepper motor(pinPUL, pinDIR, pinENA, microsteps);
 
 // ------------------------ ENCODER DECLARATION ------------------------
-const byte pinA = 10;
-const byte pinB = 51;
-const byte pinZ = 11;
+const byte pinA = 11;  // Black -> Yellow -> TX
+const byte pinB = 51;  // White -> Green -> D2
+const byte pinZ = 10;  // Orange -> Orange -> D3
 FT_Encoder encoder(pinA, pinB, pinZ);
+
+// 10 -> D3
+// 51 -> D2
+// 13 -> Rx
+// 11 -> Tx
 
 // ENCODER VECTOR
 /*
@@ -121,7 +124,6 @@ void loop() {
 
     flash.eraseSector(4096); // Apago da memória o número da válvula atual
     flash.writeByte(4096, valv); // Salvo na memória o número da próxima válvula a ser ligada
-
   }
 
   // Bomba Desligada => Não há pressão

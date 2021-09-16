@@ -64,7 +64,6 @@ void systemBegin(){
   DateTime now = DateTime(F(__DATE__), F(__TIME__));
   rtc.adjust(now);
   Serial.begin(9600); // Inicia porta serial
-  while(!Serial);
 
   // AttachInterrupt0, digital PinA, Signal A
   // It Activates interruption on any signal change
@@ -77,9 +76,9 @@ void systemBegin(){
   //AttachInterrupt2, digital PinZ, Signal Z
   // It Activates interruption at the falling edge of the signal
   attachInterrupt(digitalPinToInterrupt(pinZ), PinZ_OnFalling, FALLING);
-  
+
   Serial.println("Iniciou!");
-  
+
   initAnimation();
 }
 
@@ -110,7 +109,7 @@ void systemSetup(){
     }
 
     encoder.reset();
-  
+
     // Offset to adjust the motor position to zero point
     motor.start();
     while(encoder.getPosition() > ENCODER_POSITION[1]){
@@ -120,7 +119,7 @@ void systemSetup(){
 
     // Now system is in zero point so its parameters should be reseted
     motor.reset();
-    motor.changeDIR(1); // Motor rotates clockwise 
+    motor.changeDIR(1); // Motor rotates clockwise
     encoder.reset();
   
     if(flash.readByte(4096) == 255){ // Verifico se já existe uma válvula salva previamente
@@ -148,14 +147,6 @@ void printMenu(){
       lcd.setCursor(0,0);
       lcd.print("Bomba desligada!");
   }
-}
-
-//---------------------------------------------------------------------------------
-
-uint8_t getBatteryPercentual(){
-  byte minValue = 5;
-  byte maxValue = 8;
-  return (FTClicks.readLeadAcidBattery() - minValue) * 100 / (maxValue-minValue);
 }
 
 //---------------------------------------------------------------------------------
@@ -264,7 +255,10 @@ uint16_t memoryGetTime(SPIFlash flash, int valv, int pos){
     return timing;
   }
 }
-
+//12 -> D3 = 4
+//6  -> D2 = 46
+//0  -> Rx = 41
+//1  -> Tx = 42
 // ------------------------------------------------------------------------
 
 void setTime(){
@@ -409,6 +403,8 @@ void setTime(){
 void keepTime(uint16_t _time){
 
   DateTime initialTime = rtc.now(); // Início da operação da válvula
+
+// =============== DEBUGGING ===============
   Serial.print("Início: ");
   Serial.print(initialTime.year(), DEC);
   Serial.print('/');
@@ -422,7 +418,7 @@ void keepTime(uint16_t _time){
   Serial.print(':');
   Serial.print(initialTime.second(), DEC);
   Serial.println();
-
+// ==========================================
   DateTime future;
   if(_time >= 60){
     uint16_t hora = floor(_time/60);
@@ -433,7 +429,7 @@ void keepTime(uint16_t _time){
   else{
     future = initialTime + TimeSpan(0, 0, _time, 0); // Fim da operação
   }
-
+// =============== DEBUGGING ===============
   Serial.print("Final: ");
   Serial.print(future.year(), DEC);
   Serial.print('/');
@@ -447,7 +443,7 @@ void keepTime(uint16_t _time){
   Serial.print(':');
   Serial.print(future.second(), DEC);
   Serial.println();
-  
+// ==========================================
   DateTime _now; // Recebe o tempo atual a cada verificação
 
   unsigned long previousMillis = millis(); // Tempo inicial de verificação
@@ -473,6 +469,23 @@ void keepTime(uint16_t _time){
       flash.eraseSector(8192); // Limpa o espaço de memória onde está salvo o tempo restante
       memorySaveTime(timeLeft, flash, valv, 8192); // Salva na memória o tempo que resta para completar o ciclo
 
+      if(_now.hour() == future.hour() && _now.minute() == future.minute() && _now.second() >= future.second() - 30){
+        flash.eraseSector(8192); // Tempo restante = 0
+      // =============== DEBUGGING ===============
+      Serial.println();
+      Serial.println("Inicio: " + (String)initialTime.day() + "/" + (String)initialTime.month() + " | " + (String)initialTime.hour() + ":" + (String)initialTime.minute() + ":" + (String)initialTime.second());
+      Serial.println("Agora: " + (String)_now.day() + "/" + (String)_now.month() + " | " + (String)_now.hour() + ":" + (String)_now.minute() + ":" + (String)_now.second());
+      Serial.println("Final: " + (String)future.day() + "/" + (String)future.month() + " | " + (String)future.hour() + ":" + (String)future.minute() + ":" + (String)future.second());
+      Serial.println("Tempo restante: " + (String)timeLeft);
+      Serial.println();
+
+      for(int i = 0; i<10; i++){
+        Serial.println("Salvo na memória: " + (String)flash.readByte(8192+i));
+      }
+      // ==========================================
+        break; // Se o tempo é atingido então o programa segue para a próxima etapa
+      }
+
       // =============== DEBUGGING ===============
       Serial.println();
       Serial.println("Inicio: " + (String)initialTime.day() + "/" + (String)initialTime.month() + " | " + (String)initialTime.hour() + ":" + (String)initialTime.minute() + ":" + (String)initialTime.second());
@@ -486,19 +499,31 @@ void keepTime(uint16_t _time){
       }
      // ==========================================
 
-      if(_now >= future){
-        flash.eraseSector(8192); // Tempo restante = 0
-        break; // Se o tempo é atingido então o programa segue para a próxima etapa
-      }
     }
 
     if(readKeypad == 'D'){ // ========== UTILIZAR FUTURAMENTE LEITURA DO SENSOR DE PRESSÃO ==========
       pression = !pression;
       _now = rtc.now();
-      timeLeft = future.minute() - _now.minute(); // Armazeno o tempo que resta para completar o ciclo
-      Serial.println("Minuto Futuro: " + (String)future.minute());
-      Serial.println("Minuto Agora: " + (String)_now.minute());
+      if(future.hour() - _now.hour() >= 0){
+        timeLeft = ((60*future.hour()) + future.minute())-((60*_now.hour()) + _now.minute());
+      }
+      else{
+        timeLeft = ((60*future.hour()) + future.minute())-((60*_now.hour()) + _now.minute()) + 1440;
+      }
+
+      flash.eraseSector(8192); // Limpa o espaço de memória onde está salvo o tempo restante
+      if(timeLeft > 0){
+        memorySaveTime(timeLeft, flash, valv, 8192); // Salva na memória o tempo que resta para completar o ciclo
+      }
+
+      // =============== DEBUGGING ===============
+      Serial.println("Agora: " + (String)_now.day() + "/" + (String)_now.month() + " | " + (String)_now.hour() + ":" + (String)_now.minute() + ":" + (String)_now.second());
+      Serial.println("Futuro: " + (String)future.day() + "/" + (String)future.month() + " | " + (String)future.hour() + ":" + (String)future.minute() + ":" + (String)future.second());
       Serial.println("Tempo restante: " + (String)timeLeft);
+      for(int i = 0; i<10; i++){
+        Serial.println("Salvo na memória " + (String)(8192+i) + ": " + (String)flash.readByte(8192+i));
+      }
+      // ==========================================
       if(timeLeft == 0){
         if(valv < 5)
           valv++;
@@ -561,3 +586,5 @@ void resetSystem(){
   systemSetup();
   setTime();
 }
+
+// ------------------------------------------------------------------------
