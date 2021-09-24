@@ -1,5 +1,8 @@
-//---------------------------------------------------------------------------------
-// Transforma um dígito inteiro declado como CHAR para o tipo INT
+// =================================================================================
+// ================================ GENERAL FUNCTIONS ==============================
+// =================================================================================
+
+// Transforma um dígito inteiro declarado como CHAR para o tipo INT
 int charToInt(char c){
   int base = (int)'0';
   int num = (int)c;
@@ -7,7 +10,7 @@ int charToInt(char c){
 }
 
 // ------------------------------------------------------------------------
-// Transforma um número inteiro declado como STRING para o tipo INT
+// Transforma um número inteiro declarado como STRING para o tipo INT
 int strToInt(String str){
 
   int numb = 0;
@@ -29,6 +32,10 @@ int pot(int base, int expo){
 
 //---------------------------------------------------------------------------------
 
+// =================================================================================
+// ================================ ENCODER FUNCTIONS ==============================
+// =================================================================================
+
 void PinA_OnChange(){
   encoder.PinA_OnChange();
 }
@@ -48,8 +55,39 @@ void PinZ_OnFalling(){
     onZero = true;
   }
 }
+// ------------------------------------------------------
 
-//---------------------------------------------------------------------------------
+// =================================================================================
+// ============================ PRESSURE SENSOR FUNCTIONS ==========================
+// =================================================================================
+
+float fromPressureSensor_GetVoltage(){
+  float voltage = (analogRead(A1)*5.0)/1024.0;
+  return voltage;
+}
+
+//----------------------------------------------------------
+
+float fromPressureSensor_GetMPaPressure(){
+  //Converts into [MPa]
+  float pressure = analogRead(A1)* 0.001169;
+  return pressure;
+}
+
+//----------------------------------------------------------
+
+bool pression(){
+  if(fromPressureSensor_GetMPaPressure() > 0.3){
+    return true;
+  }
+  return false;
+}
+
+//----------------------------------------------------------
+
+// ============================================================================
+// ============================== SYSTEM FUNCTIONS ============================
+// ============================================================================
 
 void systemBegin(){
   FTClicks.turnON_5V(); // Enable 5V Output
@@ -82,7 +120,8 @@ void systemBegin(){
   initAnimation();
 }
 
-//---------------------------------------------------------------------------------
+// ------------------------------------------------------
+
 // Animação de abertura do sistema
 void initAnimation(){
   lcd.clear();
@@ -96,8 +135,9 @@ void initAnimation(){
   }
 }
 
-//---------------------------------------------------------------------------------
+// ------------------------------------------------------
 
+// Inicialização do sistema
 void systemSetup(){
 
 // Set system to zero
@@ -128,67 +168,62 @@ void systemSetup(){
   }
 }
 
-//---------------------------------------------------------------------------------
+// ------------------------------------------------------
 
-void printMenu(){
-  switch(screen){
-    case 1:
-      lcd.clear();
-      lcd.setCursor(0,0);
-      lcd.print("Sistema Ligado!!");
-      lcd.setCursor(3,1);
-      lcd.print("Valvula: ");
-      lcd.setCursor(12,1);
-      lcd.print(valv);
-      break;
+// Função executada para alterar para a válvula seguinte
+void goToValv(uint8_t valv){
 
-    case 2:
-      lcd.clear();
-      lcd.setCursor(0,0);
-      lcd.print("Bomba desligada!");
+  motor.start();
+
+  if(encoder.getPosition() > ENCODER_POSITION[2*(valv -1)]){
+    while(encoder.getPosition() > ENCODER_POSITION[2*(valv -1)]){
+      motor.pulse();
+    }
+  }
+
+  else{
+    while(encoder.getPosition() < (ENCODER_POSITION[2*(valv-1)]) && encoder.getPosition() < (ENCODER_POSITION[2*(valv-1)] - 5)){
+      motor.pulse();
+    }
+  }
+
+  motor.stop();
+}
+
+// ------------------------------------------------------
+
+// Função retorna true caso seja necessário configuração inicial
+// Retorna false caso o sistema já esteja configurado
+// OBS.: O Sistema não está configurado quando quando a memória está limpa
+bool needConfig(SPIFlash flash){
+  if(flash.readByte(0) != 255){
+    return false;
+  }
+
+  else{
+    return true;
   }
 }
 
-//---------------------------------------------------------------------------------
+// ------------------------------------------------------
 
-void screenAction(char readKeypad){
+// Função que executa a reconfiguração do sistema
+void resetSystem(){
 
-  switch(screen){
-    case 1:
-      switch(readKeypad){
-        case '*':
-          if(!pression) printPreviousScreen();
-          break;
-
-        case '#':
-          if(!pression) printNextScreen();
-          break;
-      }
-      break;
-
-    case 2:
-      switch(readKeypad){
-        case '*':
-          printPreviousScreen();
-          break;
-          
-        case '#':
-          printNextScreen();
-          break;
-      }
-      break;
-  }
+  //Apago os blocos de memória
+  flash.eraseSector(0); // Tempos de válvulas
+  flash.eraseSector(4096); // número da válvula atual
+  flash.eraseSector(8192); // Tempo restante na válvula atual
+  
+  valv = 1;
+  onZero = false;
+  Serial.println("Iniciou!");
+  initAnimation();
+  systemSetup();
+  setTime();
 }
 
-void printNextScreen(){
-  (screen == 2) ? screen = 1 : screen++;
-  printMenu();  
-}
-
-void printPreviousScreen(){
-  (screen == 1) ? screen = 2 : screen--;
-  printMenu();
-}
+// ------------------------------------------------------------------------
 
 // ============================================================================
 // ============================ SPI MEMORY FUNCTIONS ==========================
@@ -255,12 +290,11 @@ uint16_t memoryGetTime(SPIFlash flash, int valv, int pos){
     return timing;
   }
 }
-//12 -> D3 = 4
-//6  -> D2 = 46
-//0  -> Rx = 41
-//1  -> Tx = 42
+
 // ------------------------------------------------------------------------
 
+// Função de configuração do tempo em que as válvulas ficarão em cada setor
+// Função interage com o usuário e salva na memória os valores escolhidos
 void setTime(){
 
   String myTime = ""; // Defino a variável que irá receber o tempo
@@ -400,6 +434,10 @@ void setTime(){
 // =============================== RTC FUNCTIONS ==============================
 // ============================================================================
 
+// Função que mantém o sistema na válvula pelo tempo configurado inicialmente
+// Função deve buscar na memória o tempo ou tempo restante em que a válvula deve ficar ligada - e verificar a cada 1 min se o tempo foi atingido
+// Caso o sistema seja desligado a função identifica o tempo restante para completar o ciclo e salva na memória esse valor...
+// ... para que quando o sistema for ligado novamente esse valor seja utilizado
 void keepTime(uint16_t _time){
 
   DateTime initialTime = rtc.now(); // Início da operação da válvula
@@ -429,7 +467,7 @@ void keepTime(uint16_t _time){
   else{
     future = initialTime + TimeSpan(0, 0, _time, 0); // Fim da operação
   }
-// =============== DEBUGGING ===============
+  // =============== DEBUGGING ===============
   Serial.print("Final: ");
   Serial.print(future.year(), DEC);
   Serial.print('/');
@@ -443,7 +481,7 @@ void keepTime(uint16_t _time){
   Serial.print(':');
   Serial.print(future.second(), DEC);
   Serial.println();
-// ==========================================
+  // ==========================================
   DateTime _now; // Recebe o tempo atual a cada verificação
 
   unsigned long previousMillis = millis(); // Tempo inicial de verificação
@@ -501,8 +539,8 @@ void keepTime(uint16_t _time){
 
     }
 
-    if(readKeypad == 'D'){ // ========== UTILIZAR FUTURAMENTE LEITURA DO SENSOR DE PRESSÃO ==========
-      pression = !pression;
+    if(!pression()){ // Não há pressão suiciente, então salvo o tempo restante
+      //pression = !pression;
       _now = rtc.now();
       if(future.hour() - _now.hour() >= 0){
         timeLeft = ((60*future.hour()) + future.minute())-((60*_now.hour()) + _now.minute());
@@ -532,59 +570,9 @@ void keepTime(uint16_t _time){
       }
     }
 
-    if(!pression) break; // Se Não há pressão suficiente então quebro o while
+    if(!pression()) break; // Se Não há pressão suficiente então quebro o while
 
   }
-}
-
-// ------------------------------------------------------------------------
-
-void goToValv(uint8_t valv){
-
-  motor.start();
-
-  if(encoder.getPosition() > ENCODER_POSITION[2*(valv -1)]){
-    while(encoder.getPosition() > ENCODER_POSITION[2*(valv -1)]){
-      motor.pulse();
-    }
-  }
-
-  else{
-    while(encoder.getPosition() < (ENCODER_POSITION[2*(valv-1)]) && encoder.getPosition() < (ENCODER_POSITION[2*(valv-1)] - 5)){
-      motor.pulse();
-    }
-  }
-
-  motor.stop();
-}
-
-// ------------------------------------------------------------------------
-
-bool needConfig(SPIFlash flash){
-  if(flash.readByte(0) != 255){
-    return false;
-  }
-
-  else{
-    return true;
-  }
-}
-
-// ------------------------------------------------------------------------
-
-void resetSystem(){
-
-  //Apago os blocos de memória
-  flash.eraseSector(0); // Tempos de válvulas
-  flash.eraseSector(4096); // número da válvula atual
-  flash.eraseSector(8192); // Tempo restante na válvula atual
-  
-  valv = 1;
-  onZero = false;
-  Serial.println("Iniciou!");
-  initAnimation();
-  systemSetup();
-  setTime();
 }
 
 // ------------------------------------------------------------------------

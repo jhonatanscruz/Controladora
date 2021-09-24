@@ -1,7 +1,7 @@
 # Projeto_Rural
 Projeto desenvolvido para a FTTECH sob demanda da TEZCA Válvulas.
 
-O Objetivo é realizar o controle de válvulas através de um microcontrolador que envia comandos para um motor realizar a rotação do conjunto, que ainda conta com encoder. O Microcontrolador possui interação com uma memória Flash e com um RTC para a obtenção de um datalogger.
+O Objetivo é realizar o controle de válvulas através de um microcontrolador que envia comandos para um motor realizar a rotação do conjunto, que ainda conta com encoder. O Microcontrolador possui interação com uma memória Flash e com um RTC para a obtenção de um datalogger além de um sensor de pressão para acionamento do sistema somente a partir da identificação de pressão da água.
 
 # Bibliotecas utilizadas:
 - "FTTech_SAMD51Clicks.h" -> Funções de controle de energia da placa
