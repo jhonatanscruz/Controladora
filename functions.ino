@@ -76,7 +76,8 @@ float fromPressureSensor_GetMPaPressure(){
 
 //----------------------------------------------------------
 
-bool pression(){
+bool pression(void){
+  // System starts after 0.3MPa
   if(fromPressureSensor_GetMPaPressure() > 0.3){
     return true;
   }
@@ -101,6 +102,7 @@ void systemBegin(){
   rtc.begin();
   DateTime now = DateTime(F(__DATE__), F(__TIME__));
   rtc.adjust(now);
+  DateTime initTime = rtc.now(); // Início da contagem
   Serial.begin(9600); // Inicia porta serial
 
   // AttachInterrupt0, digital PinA, Signal A
@@ -140,9 +142,11 @@ void initAnimation(){
 // Inicialização do sistema
 void systemSetup(){
 
+  onZero = false;
 // Set system to zero
   if(!onZero){
     motor.changeDIR(1);
+    motor.setPulseDelay(1500); // Change motor velocity
     motor.start();
     while(!onZero){
       motor.pulse();
@@ -160,12 +164,14 @@ void systemSetup(){
     // Now system is in zero point so its parameters should be reseted
     motor.reset();
     motor.changeDIR(1); // Motor rotates clockwise
+    motor.setPulseDelay(1500); // Change motor velocity after reset
     encoder.reset();
   
     if(flash.readByte(4096) == 255){ // Verifico se já existe uma válvula salva previamente
       flash.writeByte(4096, valv); // Salvo na memória a primeira válvula a ser ligada
     }
   }
+  Serial.println("Válvula Atual: " + (String)flash.readByte(4096));
 }
 
 // ------------------------------------------------------
@@ -263,7 +269,6 @@ void memorySaveTime(uint16_t timing, SPIFlash flash, int valv, int pos){
 }
 
 // ------------------------------------------------------------------------
-
 // Recupera os valores salvos anteriormente na memória
 uint16_t memoryGetTime(SPIFlash flash, int valv, int pos){
 
@@ -278,17 +283,7 @@ uint16_t memoryGetTime(SPIFlash flash, int valv, int pos){
       pos2 = flash.readByte(i+1+pos);
     }
   }
-
-  // Se o tempo foi salvo em apenas 1 Byte
-  if(pos1 == 0){
-    return pos2;
-  }
-  
-  // Caso o tempo tenha sido salvo em 2 Bytes
-  else{
-    timing  = (pos1*10)+pos2;
-    return timing;
-  }
+  return (pos1*10)+pos2;
 }
 
 // ------------------------------------------------------------------------
@@ -496,7 +491,7 @@ void keepTime(uint16_t _time){
       _now = rtc.now(); // Verifico o tempo
 
       // Armazenando o tempo restante na memória
-      uint16_t timeLeft;
+      short timeLeft;
       if(future.hour() - _now.hour() >= 0){
         timeLeft = ((60*future.hour()) + future.minute())-((60*_now.hour()) + _now.minute());
       }
@@ -505,22 +500,23 @@ void keepTime(uint16_t _time){
       }
 
       flash.eraseSector(8192); // Limpa o espaço de memória onde está salvo o tempo restante
-      memorySaveTime(timeLeft, flash, valv, 8192); // Salva na memória o tempo que resta para completar o ciclo
+      
+      // Salva na memória o tempo que resta para completar o ciclo
+      if(timeLeft > 0) memorySaveTime(timeLeft, flash, valv, 8192);
+      else{
+        // =============== DEBUGGING ===============
+        Serial.println();
+        Serial.println("Inicio: " + (String)initialTime.day() + "/" + (String)initialTime.month() + " | " + (String)initialTime.hour() + ":" + (String)initialTime.minute() + ":" + (String)initialTime.second());
+        Serial.println("Agora: " + (String)_now.day() + "/" + (String)_now.month() + " | " + (String)_now.hour() + ":" + (String)_now.minute() + ":" + (String)_now.second());
+        Serial.println("Final: " + (String)future.day() + "/" + (String)future.month() + " | " + (String)future.hour() + ":" + (String)future.minute() + ":" + (String)future.second());
+        Serial.println("Tempo restante: " + (String)timeLeft);
+        Serial.println();
+  
+        for(int i = 0; i<10; i++){
+          Serial.println("Salvo na memória: " + (String)flash.readByte(8192+i));
+        }
+        // ==========================================
 
-      if(_now.hour() == future.hour() && _now.minute() == future.minute() && _now.second() >= future.second() - 30){
-        flash.eraseSector(8192); // Tempo restante = 0
-      // =============== DEBUGGING ===============
-      Serial.println();
-      Serial.println("Inicio: " + (String)initialTime.day() + "/" + (String)initialTime.month() + " | " + (String)initialTime.hour() + ":" + (String)initialTime.minute() + ":" + (String)initialTime.second());
-      Serial.println("Agora: " + (String)_now.day() + "/" + (String)_now.month() + " | " + (String)_now.hour() + ":" + (String)_now.minute() + ":" + (String)_now.second());
-      Serial.println("Final: " + (String)future.day() + "/" + (String)future.month() + " | " + (String)future.hour() + ":" + (String)future.minute() + ":" + (String)future.second());
-      Serial.println("Tempo restante: " + (String)timeLeft);
-      Serial.println();
-
-      for(int i = 0; i<10; i++){
-        Serial.println("Salvo na memória: " + (String)flash.readByte(8192+i));
-      }
-      // ==========================================
         break; // Se o tempo é atingido então o programa segue para a próxima etapa
       }
 
@@ -535,10 +531,10 @@ void keepTime(uint16_t _time){
       for(int i = 0; i<10; i++){
         Serial.println("Salvo na memória: " + (String)flash.readByte(8192+i));
       }
-     // ==========================================
+      // ==========================================
 
     }
-
+    //pression(pressure);
     if(!pression()){ // Não há pressão suiciente, então salvo o tempo restante
       //pression = !pression;
       _now = rtc.now();
@@ -568,10 +564,8 @@ void keepTime(uint16_t _time){
         else
           valv = 1;
       }
+      break;
     }
-
-    if(!pression()) break; // Se Não há pressão suficiente então quebro o while
-
   }
 }
 

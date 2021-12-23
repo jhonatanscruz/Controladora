@@ -75,13 +75,12 @@ void setup() {
     // Solicita que o usuário selecione o tempo de funcionamento de cada setor
     setTime();
   }
-  
 }
 
 // ------------------------ LOOP ------------------------
 void loop() {
 
-  valv = flash.readByte(4096); // Recupera da memória o número da válvula
+  valv = flash.readByte(4096); // Recupera da memória o número da válvula atual
 
   // Bomba Ligada => Há pressão
   if(pression()){
@@ -96,26 +95,29 @@ void loop() {
     lcd.setCursor(12,1);
     lcd.print(valv);
 
-    if(flash.readByte(8192 + (2*(valv-1))) == 255){ // Verifico se a válvula tem tempo restante ou está iniciando agora [Se == 255 então está iniciando agora]
+    // Verifico se a válvula tem tempo restante ou está iniciando agora [Se == 255 então está iniciando agora]
+    if(flash.readByte(8192 + (2*(valv-1))) == 255){
       Serial.println("MEMORY GET TIME FUNCTION [ valv " + (String)valv + "]: " + (String)memoryGetTime(flash, valv, 0));
       keepTime(memoryGetTime(flash, valv, 0)); // Está iniciando agora, então pego o tempo que o usuário definiu
     }
+    // Não está iniciando agora, então pego o tempo RESTANTE salvo na memória quando o sistema foi interrompido
     else{
       Serial.println("MEMORY GET TIME REMAINING [ valv " + (String)valv + "]: " + (String)memoryGetTime(flash, valv, 8192));
       int remaining = memoryGetTime(flash, valv, 8192);
       flash.eraseSector(8192); // Apago da memória o tempo restante
-      keepTime(remaining);     // Não está iniciando agora, então pego o tempo RESTANTE salvo na memória quando o sistema foi interrompido
+      keepTime(remaining);
     }
 
-    if(pression()){ // Se a bomba continua ligada, então, após o tempo na válvula, passo para a válvula seguinte
+  // Se a bomba continua ligada, então, após o tempo na válvula, passo para a válvula seguinte
+  if(pression()){
       if(valv < 5)
         valv++;
       else
         valv = 1;
     }
-
+    // ATUALIZA A VÁLVULA A SER ACIONADA NA PRÓXIMA OPERAÇÃO
     flash.eraseSector(4096); // Apago da memória o número da válvula atual
-    flash.writeByte(4096, valv); // Salvo na memória o número da próxima válvula a ser ligada
+    flash.writeByte(4096, valv); // Salvo na memória o número da próxima válvula a ser acionada
   }
 
   // Bomba Desligada => Não há pressão
@@ -126,6 +128,7 @@ void loop() {
 
     while(true){ // Aguardo até a bomba ser ligada
       char readKeypad = myKeypad.getKey(); // Faço a leitura do teclado
+      //pression(pressure);
       if(pression()) break; // Se há pressão então quebro o while
       switch(readKeypad){
         case 'C':     // ========== RESETAR O SISTEMA ==========
@@ -142,6 +145,7 @@ void loop() {
               case 'A':
                 resetSystem();
                 endWhile = true;
+                //pression(pressure);
                 if(pression()){
                   lcd.clear();
                   lcd.setCursor(0,0);
