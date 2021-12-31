@@ -21,7 +21,7 @@ int strToInt(String str){
 }
 
 // ------------------------------------------------------------------------
-// Faz a operação de potência dados a base e o expoente
+// Realiza a operação de potênciação dados a base e o expoente
 int pot(int base, int expo){
   int result = 1;
   for(int i = 0 ; i < expo ; i++){
@@ -62,7 +62,7 @@ void PinZ_OnFalling(){
 // =================================================================================
 
 float fromPressureSensor_GetVoltage(){
-  float voltage = (analogRead(A1)*5.0)/1024.0;
+  float voltage = (analogRead(PRESSURE_SENSOR_PIN)*5.0)/1024.0;
   return voltage;
 }
 
@@ -70,7 +70,7 @@ float fromPressureSensor_GetVoltage(){
 
 float fromPressureSensor_GetMPaPressure(){
   //Converts into [MPa]
-  float pressure = analogRead(A1)* 0.001169;
+  float pressure = analogRead(PRESSURE_SENSOR_PIN)* 0.001169;
   return pressure;
 }
 
@@ -78,7 +78,7 @@ float fromPressureSensor_GetMPaPressure(){
 
 bool pression(void){
   // System starts after 0.3MPa
-  if(fromPressureSensor_GetMPaPressure() > 0.3){
+  if(fromPressureSensor_GetMPaPressure() > TRANSITION_PRESSURE){
     return true;
   }
   return false;
@@ -103,7 +103,7 @@ void systemBegin(){
   DateTime now = DateTime(F(__DATE__), F(__TIME__));
   rtc.adjust(now);
   DateTime initTime = rtc.now(); // Início da contagem
-  Serial.begin(9600); // Inicia porta serial
+  Serial.begin(DEBUG_BAUDRATE); // Inicia porta serial
 
   // AttachInterrupt0, digital PinA, Signal A
   // It Activates interruption on any signal change
@@ -117,7 +117,7 @@ void systemBegin(){
   // It Activates interruption at the falling edge of the signal
   attachInterrupt(digitalPinToInterrupt(pinZ), PinZ_OnFalling, FALLING);
 
-  Serial.println("Iniciou!");
+  if(DEBUG) Serial.println("Iniciou!");
 
   initAnimation();
 }
@@ -145,33 +145,30 @@ void systemSetup(){
   onZero = false;
 // Set system to zero
   if(!onZero){
-    motor.changeDIR(1);
-    motor.setPulseDelay(1500); // Change motor velocity
+    motor.changeDIR(MOTOR_DIRECTION);
+    motor.setPulseDelay(MOTOR_PULSE_DELAY); // Change motor velocity
     motor.start();
-    while(!onZero){
-      motor.pulse();
-    }
+    while(!onZero) motor.pulse();
 
     encoder.reset();
 
     // Offset to adjust the motor position to zero point
-    motor.start();
-    while(encoder.getPosition() > ENCODER_POSITION[1]){
-      motor.pulse();
-    }
-      motor.stop();
+    while(encoder.getPosition() > ENCODER_POSITION[1]) motor.pulse();
+    
+    motor.stop();
 
     // Now system is in zero point so its parameters should be reseted
     motor.reset();
-    motor.changeDIR(1); // Motor rotates clockwise
-    motor.setPulseDelay(1500); // Change motor velocity after reset
+    motor.changeDIR(MOTOR_DIRECTION); // Motor rotates clockwise
+    motor.setPulseDelay(MOTOR_PULSE_DELAY); // Change motor velocity after reset
     encoder.reset();
   
-    if(flash.readByte(4096) == 255){ // Verifico se já existe uma válvula salva previamente
-      flash.writeByte(4096, valv); // Salvo na memória a primeira válvula a ser ligada
+    if(flash.readByte(CURRENT_VALVE_ADRESS) == 255){ // Verifico se já existe uma válvula salva previamente
+      flash.writeByte(CURRENT_VALVE_ADRESS, valv); // Caso não exista, salvo na memória a primeira válvula a ser ligada
     }
   }
-  Serial.println("Válvula Atual: " + (String)flash.readByte(4096));
+  
+  if(DEBUG) Serial.println("Válvula Atual: " + (String)flash.readByte(CURRENT_VALVE_ADRESS));
 }
 
 // ------------------------------------------------------
@@ -200,9 +197,9 @@ void goToValv(uint8_t valv){
 
 // Função retorna true caso seja necessário configuração inicial
 // Retorna false caso o sistema já esteja configurado
-// OBS.: O Sistema não está configurado quando quando a memória está limpa
+// OBS.: O Sistema não está configurado quando a memória está limpa
 bool needConfig(SPIFlash flash){
-  if(flash.readByte(0) != 255){
+  if(flash.readByte(VALVE_TIME_SECTOR) != 255){
     return false;
   }
 
@@ -217,13 +214,12 @@ bool needConfig(SPIFlash flash){
 void resetSystem(){
 
   //Apago os blocos de memória
-  flash.eraseSector(0); // Tempos de válvulas
-  flash.eraseSector(4096); // número da válvula atual
-  flash.eraseSector(8192); // Tempo restante na válvula atual
-  
+  flash.eraseSector(VALVE_TIME_SECTOR); // Tempos de válvulas
+  flash.eraseSector(CURRENT_VALVE_ADRESS); // número da válvula atual
+  flash.eraseSector(TIME_LEFT_SECTOR); // Tempo restante na válvula atual
+
   valv = 1;
-  onZero = false;
-  Serial.println("Iniciou!");
+  if(DEBUG) Serial.println("Iniciou!");
   initAnimation();
   systemSetup();
   setTime();
@@ -236,33 +232,33 @@ void resetSystem(){
 // ============================================================================
 
 // Salva na memória o tempo de abertura de cada válvula
-void memorySaveTime(uint16_t timing, SPIFlash flash, int valv, int pos){
+void memorySaveTime(uint16_t timing, SPIFlash flash, uint8_t valv, uint16_t firstAddress){
 
     // Se o tempo for menor ou igual a 254 => Consigo salvar em 1 Byte
   if(timing <= 254){
-    for(int i = 0; i < 9; i = i+2){
+    for(uint8_t i = 0; i < 9; i = i+2){
       if(i == 2*(valv-1))
       {
         // Escreve na memória
-        flash.writeByte(i+pos, 0); // Primeiro Byte recebe 0
-        flash.writeByte(i+1+pos, timing); // Segundo Byte recebe o tempo em minutos
+        flash.writeByte(i+firstAddress, 0); // Primeiro Byte recebe 0
+        flash.writeByte(i+1+firstAddress, timing); // Segundo Byte recebe o tempo em minutos
       }
     }
   }
 
   // Se o tempo for superior a 254 => Divido o valor em 2 Bytes
   else{
-    for(int i = 0; i < 9; i = i+2)
+    for(uint8_t i = 0; i < 9; i = i+2)
     {
       if(i == 2*(valv-1))
       {
         // Operação para separar o valor em 2 Bytes
-        int byte1 = (int)floor(timing/10); // Primeiro Byte = Parte inteira da divisão por 10 do valor inicial
-        int byte2 = timing - (10*byte1); // Segundo Byte = Parte unitária do valor inicial
+        uint8_t byte1 = (uint16_t)floor(timing/10); // Primeiro Byte = Parte inteira da divisão por 10 do valor inicial
+        uint8_t byte2 = timing - (10*byte1); // Segundo Byte = Parte unitária do valor inicial
 
         // Escreve na memória
-        flash.writeByte(i+pos, byte1);
-        flash.writeByte(i+1+pos, byte2);
+        flash.writeByte(i+firstAddress, byte1);
+        flash.writeByte(i+1+firstAddress, byte2);
       }
     }
   }
@@ -270,7 +266,7 @@ void memorySaveTime(uint16_t timing, SPIFlash flash, int valv, int pos){
 
 // ------------------------------------------------------------------------
 // Recupera os valores salvos anteriormente na memória
-uint16_t memoryGetTime(SPIFlash flash, int valv, int pos){
+uint16_t memoryGetTime(SPIFlash flash, uint8_t valv, uint16_t firstAddress){
 
   uint16_t timing;
   uint16_t pos1;
@@ -279,8 +275,8 @@ uint16_t memoryGetTime(SPIFlash flash, int valv, int pos){
   // Procuro o tempo salvo para a válvula passada no parâmetro
   for(int i = 0; i < 9; i = i+2){
     if(i == 2*(valv-1)){
-      pos1 = flash.readByte(i+pos);
-      pos2 = flash.readByte(i+1+pos);
+      pos1 = flash.readByte(i+firstAddress);
+      pos2 = flash.readByte(i+1+firstAddress);
     }
   }
   return (pos1*10)+pos2;
@@ -332,8 +328,8 @@ void setTime(){
 
                   // Salvo os dados do tempo na memória            
                   for(int i = 1; i <= 5 ; i++){
-                    memorySaveTime(strToInt(myTime), flash, i, 0);
-                    Serial.println("Salvei "+(String)strToInt(myTime)+ " no endereço " + (String)i);
+                    memorySaveTime(strToInt(myTime), flash, i, VALVE_TIME_SECTOR);
+                    if(DEBUG) Serial.println("Salvei "+(String)strToInt(myTime)+ " no endereço " + (String)i);
                   }
 
                   endWhile = true;
@@ -373,7 +369,7 @@ void setTime(){
         for(int i = 1; i <= 5 ; i++){
           endWhile = false;
           myTime = "";
-          Serial.println("MyTime " + (String)i + " : " + (String)myTime);
+          if(DEBUG) Serial.println("MyTime " + (String)i + " : " + (String)myTime);
           lcd.clear();
           lcd.setCursor(0,0);
           lcd.print("Tempo setor " + (String)i + ":");
@@ -384,9 +380,9 @@ void setTime(){
             switch(readKeypad){
               case 'A':
                 if(myTime.length() > 0){
-                  Serial.println(myTime);
+                  if(DEBUG) Serial.println(myTime);
                   // Salvo os dados do tempo na memória            
-                  memorySaveTime(strToInt(myTime), flash, i, 0);
+                  memorySaveTime(strToInt(myTime), flash, i, VALVE_TIME_SECTOR);
                   if(i == 5){
                     lcd.clear();
                     lcd.setCursor(0,0);
@@ -438,20 +434,23 @@ void keepTime(uint16_t _time){
   DateTime initialTime = rtc.now(); // Início da operação da válvula
 
 // =============== DEBUGGING ===============
-  Serial.print("Início: ");
-  Serial.print(initialTime.year(), DEC);
-  Serial.print('/');
-  Serial.print(initialTime.month(), DEC);
-  Serial.print('/');
-  Serial.print(initialTime.day(), DEC);
-  Serial.print(' ');
-  Serial.print(initialTime.hour(), DEC);
-  Serial.print(':');
-  Serial.print(initialTime.minute(), DEC);
-  Serial.print(':');
-  Serial.print(initialTime.second(), DEC);
-  Serial.println();
+  if(DEBUG){
+    Serial.print("Início: ");
+    Serial.print(initialTime.year(), DEC);
+    Serial.print('/');
+    Serial.print(initialTime.month(), DEC);
+    Serial.print('/');
+    Serial.print(initialTime.day(), DEC);
+    Serial.print(' ');
+    Serial.print(initialTime.hour(), DEC);
+    Serial.print(':');
+    Serial.print(initialTime.minute(), DEC);
+    Serial.print(':');
+    Serial.print(initialTime.second(), DEC);
+    Serial.println();
+  }
 // ==========================================
+
   DateTime future;
   if(_time >= 60){
     uint16_t hora = floor(_time/60);
@@ -462,21 +461,25 @@ void keepTime(uint16_t _time){
   else{
     future = initialTime + TimeSpan(0, 0, _time, 0); // Fim da operação
   }
+  
   // =============== DEBUGGING ===============
-  Serial.print("Final: ");
-  Serial.print(future.year(), DEC);
-  Serial.print('/');
-  Serial.print(future.month(), DEC);
-  Serial.print('/');
-  Serial.print(future.day(), DEC);
-  Serial.print(' ');
-  Serial.print(future.hour(), DEC);
-  Serial.print(':');
-  Serial.print(future.minute(), DEC);
-  Serial.print(':');
-  Serial.print(future.second(), DEC);
-  Serial.println();
+  if(DEBUG){
+    Serial.print("Final: ");
+    Serial.print(future.year(), DEC);
+    Serial.print('/');
+    Serial.print(future.month(), DEC);
+    Serial.print('/');
+    Serial.print(future.day(), DEC);
+    Serial.print(' ');
+    Serial.print(future.hour(), DEC);
+    Serial.print(':');
+    Serial.print(future.minute(), DEC);
+    Serial.print(':');
+    Serial.print(future.second(), DEC);
+    Serial.println();
+  }
   // ==========================================
+  
   DateTime _now; // Recebe o tempo atual a cada verificação
 
   unsigned long previousMillis = millis(); // Tempo inicial de verificação
@@ -499,21 +502,23 @@ void keepTime(uint16_t _time){
         timeLeft = ((60*future.hour()) + future.minute())-((60*_now.hour()) + _now.minute()) + 1440;
       }
 
-      flash.eraseSector(8192); // Limpa o espaço de memória onde está salvo o tempo restante
+      flash.eraseSector(TIME_LEFT_SECTOR); // Limpa o espaço de memória onde está salvo o tempo restante
       
       // Salva na memória o tempo que resta para completar o ciclo
-      if(timeLeft > 0) memorySaveTime(timeLeft, flash, valv, 8192);
+      if(timeLeft > 0) memorySaveTime(timeLeft, flash, valv, TIME_LEFT_SECTOR);
       else{
         // =============== DEBUGGING ===============
-        Serial.println();
-        Serial.println("Inicio: " + (String)initialTime.day() + "/" + (String)initialTime.month() + " | " + (String)initialTime.hour() + ":" + (String)initialTime.minute() + ":" + (String)initialTime.second());
-        Serial.println("Agora: " + (String)_now.day() + "/" + (String)_now.month() + " | " + (String)_now.hour() + ":" + (String)_now.minute() + ":" + (String)_now.second());
-        Serial.println("Final: " + (String)future.day() + "/" + (String)future.month() + " | " + (String)future.hour() + ":" + (String)future.minute() + ":" + (String)future.second());
-        Serial.println("Tempo restante: " + (String)timeLeft);
-        Serial.println();
-  
-        for(int i = 0; i<10; i++){
-          Serial.println("Salvo na memória: " + (String)flash.readByte(8192+i));
+        if(DEBUG){
+          Serial.println();
+          Serial.println("Inicio: " + (String)initialTime.day() + "/" + (String)initialTime.month() + " | " + (String)initialTime.hour() + ":" + (String)initialTime.minute() + ":" + (String)initialTime.second());
+          Serial.println("Agora: " + (String)_now.day() + "/" + (String)_now.month() + " | " + (String)_now.hour() + ":" + (String)_now.minute() + ":" + (String)_now.second());
+          Serial.println("Final: " + (String)future.day() + "/" + (String)future.month() + " | " + (String)future.hour() + ":" + (String)future.minute() + ":" + (String)future.second());
+          Serial.println("Tempo restante: " + (String)timeLeft);
+          Serial.println();
+    
+          for(int i = 0; i<10; i++){
+            Serial.println("Salvo na memória: " + (String)flash.readByte(TIME_LEFT_SECTOR+i));
+          }
         }
         // ==========================================
 
@@ -521,20 +526,21 @@ void keepTime(uint16_t _time){
       }
 
       // =============== DEBUGGING ===============
-      Serial.println();
-      Serial.println("Inicio: " + (String)initialTime.day() + "/" + (String)initialTime.month() + " | " + (String)initialTime.hour() + ":" + (String)initialTime.minute() + ":" + (String)initialTime.second());
-      Serial.println("Agora: " + (String)_now.day() + "/" + (String)_now.month() + " | " + (String)_now.hour() + ":" + (String)_now.minute() + ":" + (String)_now.second());
-      Serial.println("Final: " + (String)future.day() + "/" + (String)future.month() + " | " + (String)future.hour() + ":" + (String)future.minute() + ":" + (String)initialTime.second());
-      Serial.println("Tempo restante: " + (String)timeLeft);
-      Serial.println();
-
-      for(int i = 0; i<10; i++){
-        Serial.println("Salvo na memória: " + (String)flash.readByte(8192+i));
+      if(DEBUG){
+        Serial.println();
+        Serial.println("Inicio: " + (String)initialTime.day() + "/" + (String)initialTime.month() + " | " + (String)initialTime.hour() + ":" + (String)initialTime.minute() + ":" + (String)initialTime.second());
+        Serial.println("Agora: " + (String)_now.day() + "/" + (String)_now.month() + " | " + (String)_now.hour() + ":" + (String)_now.minute() + ":" + (String)_now.second());
+        Serial.println("Final: " + (String)future.day() + "/" + (String)future.month() + " | " + (String)future.hour() + ":" + (String)future.minute() + ":" + (String)initialTime.second());
+        Serial.println("Tempo restante: " + (String)timeLeft);
+        Serial.println();
+  
+        for(int i = 0; i<10; i++){
+          Serial.println("Salvo na memória: " + (String)flash.readByte(TIME_LEFT_SECTOR+i));
+        }
       }
       // ==========================================
 
     }
-    //pression(pressure);
     if(!pression()){ // Não há pressão suiciente, então salvo o tempo restante
       //pression = !pression;
       _now = rtc.now();
@@ -545,17 +551,19 @@ void keepTime(uint16_t _time){
         timeLeft = ((60*future.hour()) + future.minute())-((60*_now.hour()) + _now.minute()) + 1440;
       }
 
-      flash.eraseSector(8192); // Limpa o espaço de memória onde está salvo o tempo restante
+      flash.eraseSector(TIME_LEFT_SECTOR); // Limpa o espaço de memória onde está salvo o tempo restante
       if(timeLeft > 0){
-        memorySaveTime(timeLeft, flash, valv, 8192); // Salva na memória o tempo que resta para completar o ciclo
+        memorySaveTime(timeLeft, flash, valv, TIME_LEFT_SECTOR); // Salva na memória o tempo que resta para completar o ciclo
       }
 
       // =============== DEBUGGING ===============
-      Serial.println("Agora: " + (String)_now.day() + "/" + (String)_now.month() + " | " + (String)_now.hour() + ":" + (String)_now.minute() + ":" + (String)_now.second());
-      Serial.println("Futuro: " + (String)future.day() + "/" + (String)future.month() + " | " + (String)future.hour() + ":" + (String)future.minute() + ":" + (String)future.second());
-      Serial.println("Tempo restante: " + (String)timeLeft);
-      for(int i = 0; i<10; i++){
-        Serial.println("Salvo na memória " + (String)(8192+i) + ": " + (String)flash.readByte(8192+i));
+      if(DEBUG){
+        Serial.println("Agora: " + (String)_now.day() + "/" + (String)_now.month() + " | " + (String)_now.hour() + ":" + (String)_now.minute() + ":" + (String)_now.second());
+        Serial.println("Futuro: " + (String)future.day() + "/" + (String)future.month() + " | " + (String)future.hour() + ":" + (String)future.minute() + ":" + (String)future.second());
+        Serial.println("Tempo restante: " + (String)timeLeft);
+        for(int i = 0; i<10; i++){
+          Serial.println("Salvo na memória " + (String)(TIME_LEFT_SECTOR+i) + ": " + (String)flash.readByte(TIME_LEFT_SECTOR+i));
+        }
       }
       // ==========================================
       if(timeLeft == 0){

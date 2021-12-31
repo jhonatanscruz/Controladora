@@ -9,7 +9,16 @@
 #include<SPIMemory.h>
 
 // ------------------------ DEFINES ------------------------
+#define DEBUG false
+#define DEBUG_BAUDRATE 9600
 #define ENCODER_NUMBER_POS 10
+#define TRANSITION_PRESSURE 0.3
+#define MOTOR_DIRECTION 1
+#define MOTOR_PULSE_DELAY 1500
+#define VALVE_TIME_SECTOR 0
+#define CURRENT_VALVE_ADRESS 4096
+#define TIME_LEFT_SECTOR 8192
+#define PRESSURE_SENSOR_PIN A1
 
 // ------------------------ KEYPAD DECLARATION ------------------------
 const byte LINHAS = 4; // Linhas do teclado
@@ -70,8 +79,8 @@ void setup() {
 
   if(needConfig(flash)){
     //Apago outras partes da memória
-    flash.eraseSector(0); // Tempos de válvulas
-    flash.eraseSector(8192); // Tempos restantes de válvulas
+    flash.eraseSector(VALVE_TIME_SECTOR); // Tempos de válvulas
+    flash.eraseSector(TIME_LEFT_SECTOR); // Tempos restantes de válvulas
     // Solicita que o usuário selecione o tempo de funcionamento de cada setor
     setTime();
   }
@@ -80,7 +89,7 @@ void setup() {
 // ------------------------ LOOP ------------------------
 void loop() {
 
-  valv = flash.readByte(4096); // Recupera da memória o número da válvula atual
+  valv = flash.readByte(CURRENT_VALVE_ADRESS); // Recupera da memória o número da válvula atual
 
   // Bomba Ligada => Há pressão
   if(pression()){
@@ -96,15 +105,15 @@ void loop() {
     lcd.print(valv);
 
     // Verifico se a válvula tem tempo restante ou está iniciando agora [Se == 255 então está iniciando agora]
-    if(flash.readByte(8192 + (2*(valv-1))) == 255){
-      Serial.println("MEMORY GET TIME FUNCTION [ valv " + (String)valv + "]: " + (String)memoryGetTime(flash, valv, 0));
-      keepTime(memoryGetTime(flash, valv, 0)); // Está iniciando agora, então pego o tempo que o usuário definiu
+    if(flash.readByte(TIME_LEFT_SECTOR + (2*(valv-1))) == 255){
+      if(DEBUG) Serial.println("MEMORY GET TIME FUNCTION [ valv " + (String)valv + "]: " + (String)memoryGetTime(flash, valv, VALVE_TIME_SECTOR));
+      keepTime(memoryGetTime(flash, valv, VALVE_TIME_SECTOR)); // Está iniciando agora, então pego o tempo que o usuário definiu
     }
     // Não está iniciando agora, então pego o tempo RESTANTE salvo na memória quando o sistema foi interrompido
     else{
-      Serial.println("MEMORY GET TIME REMAINING [ valv " + (String)valv + "]: " + (String)memoryGetTime(flash, valv, 8192));
-      int remaining = memoryGetTime(flash, valv, 8192);
-      flash.eraseSector(8192); // Apago da memória o tempo restante
+      if(DEBUG) Serial.println("MEMORY GET TIME REMAINING [ valv " + (String)valv + "]: " + (String)memoryGetTime(flash, valv, TIME_LEFT_SECTOR));
+      int remaining = memoryGetTime(flash, valv, TIME_LEFT_SECTOR);
+      flash.eraseSector(TIME_LEFT_SECTOR); // Apago da memória o tempo restante
       keepTime(remaining);
     }
 
@@ -116,8 +125,8 @@ void loop() {
         valv = 1;
     }
     // ATUALIZA A VÁLVULA A SER ACIONADA NA PRÓXIMA OPERAÇÃO
-    flash.eraseSector(4096); // Apago da memória o número da válvula atual
-    flash.writeByte(4096, valv); // Salvo na memória o número da próxima válvula a ser acionada
+    flash.eraseSector(CURRENT_VALVE_ADRESS); // Apago da memória o número da válvula atual
+    flash.writeByte(CURRENT_VALVE_ADRESS, valv); // Salvo na memória o número da próxima válvula a ser acionada
   }
 
   // Bomba Desligada => Não há pressão
@@ -128,7 +137,6 @@ void loop() {
 
     while(true){ // Aguardo até a bomba ser ligada
       char readKeypad = myKeypad.getKey(); // Faço a leitura do teclado
-      //pression(pressure);
       if(pression()) break; // Se há pressão então quebro o while
       switch(readKeypad){
         case 'C':     // ========== RESETAR O SISTEMA ==========
@@ -145,7 +153,6 @@ void loop() {
               case 'A':
                 resetSystem();
                 endWhile = true;
-                //pression(pressure);
                 if(pression()){
                   lcd.clear();
                   lcd.setCursor(0,0);
